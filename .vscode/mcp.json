@@ -1,0 +1,26 @@
+{
+  "servers": {
+    "memory": {
+      "command": "java",
+      "args": [
+        "-jar",
+        "c:\\Users\\Dell\\AppData\\Roaming\\Kiro\\User\\globalStorage\\allansantos-dv.mcp-memory-server\\mcp-memory-server.jar",
+        "--workspace",
+        "${workspaceFolder}",
+        "--transport",
+        "both",
+        "--port",
+        "3000"
+      ],
+      "env": {
+        "MCP_STORAGE_BACKEND": "postgresql",
+        "MCP_PG_HOST": "localhost",
+        "MCP_PG_PORT": "5432",
+        "MCP_PG_DATABASE": "mcp_memory",
+        "MCP_PG_USER": "postgres",
+        "MCP_PG_SSL": "false",
+        "MCP_PG_TS_LANGUAGE": "simple"
+      }
+    }
+  }
+}
