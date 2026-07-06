@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
+from app.gemini_client import triage_issue
 from app.github_client import add_label, post_comment
 from app.models import ActionLog, Event, Repo, Rule
 from app.slack_client import send_slack_message
@@ -148,6 +149,45 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
         fields, issue_number = _extract_matchable(event.event_type, payload)
         access_token = repo.owner_user.access_token
 
+        # --- AI TRIAGE (issues only, on open/reopen) ---
+        ai_result = None
+        if (
+            event.event_type == "issues"
+            and event.action in ("opened", "reopened")
+            and issue_number
+            and settings.GEMINI_API_KEY
+        ):
+            ai_result = await triage_issue(fields["title"], fields["body"])
+            if ai_result:
+                # Apply AI-suggested label
+                await _retry(
+                    lambda label=ai_result["label"]: add_label(
+                        access_token, repo.owner, repo.name, issue_number, label
+                    ),
+                    "ai_label", event, db,
+                )
+                # Post AI summary as a comment on the issue
+                comment = (
+                    f"🤖 **AI Triage**\n\n"
+                    f"**Suggested label:** `{ai_result['label']}`\n"
+                    f"**Summary:** {ai_result['summary']}"
+                )
+                await _retry(
+                    lambda c=comment: post_comment(
+                        access_token, repo.owner, repo.name, issue_number, c
+                    ),
+                    "ai_comment", event, db,
+                )
+                # Send enriched Slack message
+                slack_text = (
+                    f":robot_face: *AI Triage* — *{repo.owner}/{repo.name}*\n"
+                    f"*Issue:* \"{fields['title']}\"\n"
+                    f"*Label:* `{ai_result['label']}`\n"
+                    f"*Summary:* {ai_result['summary']}"
+                )
+                await _retry(lambda t=slack_text: send_slack_message(t), "ai_slack", event, db)
+
+        # --- RULE-BASED PROCESSING ---
         rules = (
             db.query(Rule)
             .filter(Rule.repo_id == repo.id, Rule.event_type == event.event_type, Rule.enabled == True)  # noqa: E712
@@ -171,9 +211,10 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
                     "github_comment", event, db,
                 )
             if rule.slack_notify:
+                ai_note = f"\n🤖 _{ai_result['summary']}_" if ai_result else ""
                 text = (
                     f":robot_face: *{repo.owner}/{repo.name}* — {event.event_type} "
-                    f"{event.action or ''}: \"{fields['title']}\" matched rule *{rule.name}*"
+                    f"{event.action or ''}: \"{fields['title']}\" matched rule *{rule.name}*{ai_note}"
                 )
                 await _retry(lambda: send_slack_message(text), "slack_notify", event, db)
 
