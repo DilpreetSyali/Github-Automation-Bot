@@ -2,6 +2,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.config import settings
 from app.database import Base, engine
@@ -30,6 +31,30 @@ def on_startup():
     # Exercise scope: create_all instead of a migration tool (Alembic would
     # be the real-world choice - see AI_NOTES.md).
     Base.metadata.create_all(bind=engine)
+    _repair_slack_connection_columns()
+
+
+def _repair_slack_connection_columns() -> None:
+    inspector = inspect(engine)
+    if "slack_connections" not in inspector.get_table_names():
+        return
+
+    existing = {column["name"] for column in inspector.get_columns("slack_connections")}
+    desired = {
+        "access_token": "TEXT",
+        "team_id": "VARCHAR",
+        "team_name": "VARCHAR",
+        "channel_id": "VARCHAR",
+        "channel_name": "VARCHAR",
+        "webhook_url": "TEXT",
+        "updated_at": "DATETIME",
+    }
+
+    missing = [(name, ddl) for name, ddl in desired.items() if name not in existing]
+    with engine.begin() as conn:
+        for name, ddl in missing:
+            conn.execute(text(f"ALTER TABLE slack_connections ADD COLUMN {name} {ddl}"))
+        conn.execute(text("ALTER TABLE slack_connections ALTER COLUMN webhook_url DROP NOT NULL"))
 
 
 @app.get("/health")

@@ -9,7 +9,7 @@ rules configured in the dashboard.
 - **Backend**: FastAPI + SQLAlchemy + Postgres, deployed on Render.
 - **Frontend**: Next.js 14 (App Router), deployed on Vercel.
 - **DB**: Neon (free Postgres, no card).
-- **Notifications**: Slack Incoming Webhook.
+ - **Notifications**: Slack OAuth + channel selection, with webhook fallback.
 - **Auth**: GitHub OAuth App, session cookie = signed JWT.
 
 ## How it works
@@ -89,6 +89,13 @@ GitHub can't reach `localhost`, so for local testing either:
 - Use a tunnel (ngrok/cloudflared) to expose `localhost:8000` and use that
   URL as `GITHUB_OAUTH_REDIRECT_URL`'s host when connecting a repo.
 
+### Slack setup
+To let each user connect their own Slack workspace:
+- Create a Slack app with `chat:write`, `channels:read`, `groups:read`, `im:read`, and `mpim:read`.
+- Set the redirect URL to `http://localhost:8000/auth/slack/callback`.
+- Put `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_OAUTH_REDIRECT_URL` in `backend/.env`.
+- In the dashboard, click `Connect Slack`, authorize Slack, then choose a channel.
+
 ## Environment variables
 See `backend/.env.example` and `frontend/.env.example`. Never commit a real
 `.env` — only `.env.example` with placeholders is in the repo.
@@ -106,6 +113,8 @@ See `backend/.env.example` and `frontend/.env.example`. Never commit a real
   into `DATABASE_URL` on Render.
 - Update the GitHub OAuth App's callback URL to the real Render URL once
   deployed.
+- Update the Slack app redirect URL to the deployed backend
+  `/auth/slack/callback`.
 
 ## Security / reliability notes (see quality bar in the assignment)
 - Signature verification happens before any DB write or GitHub/Slack call.
