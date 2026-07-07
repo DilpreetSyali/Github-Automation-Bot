@@ -202,6 +202,14 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       try {
+        if (typeof window !== "undefined") {
+          const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+          const token = hash.get("token");
+          if (token) {
+            window.localStorage.setItem("session_token", token);
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+          }
+        }
         const me = await api.me();
         setUser(me);
         const slack = await api.slackConnection().catch(() => null);
@@ -323,7 +331,17 @@ export default function Dashboard() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {user?.avatar_url && <img src={user.avatar_url} alt="" width={28} height={28} style={{ borderRadius: "50%", border: "2px solid #30363d" }} />}
           <span style={{ color: "#c9d1d9", fontWeight: 500, fontSize: 14 }}>{user?.username}</span>
-          <a href={`${API_URL}/auth/logout`} style={{ background: "#21262d", border: "1px solid #30363d", borderRadius: 6, padding: "5px 14px", color: "#c9d1d9", fontSize: 13, textDecoration: "none" }}>Sign out</a>
+          <a
+            href={`${API_URL}/auth/logout`}
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.localStorage.removeItem("session_token");
+              }
+            }}
+            style={{ background: "#21262d", border: "1px solid #30363d", borderRadius: 6, padding: "5px 14px", color: "#c9d1d9", fontSize: 13, textDecoration: "none" }}
+          >
+            Sign out
+          </a>
         </div>
       </header>
 

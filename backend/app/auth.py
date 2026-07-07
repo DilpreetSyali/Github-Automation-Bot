@@ -32,6 +32,10 @@ def decode_session_token(token: str) -> int:
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user_id = decode_session_token(token)
     user = db.query(User).filter(User.id == user_id).first()

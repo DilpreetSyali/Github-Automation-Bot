@@ -49,13 +49,14 @@ async def callback(code: str, db: Session = Depends(get_db)):
     db.refresh(user)
 
     token = create_session_token(user.id)
-    redirect = RedirectResponse(f"{settings.FRONTEND_URL}/dashboard")
+    redirect = RedirectResponse(f"{settings.FRONTEND_URL}/dashboard#token={token}")
+    cookie_secure = settings.GITHUB_OAUTH_REDIRECT_URL.startswith("https://") or settings.FRONTEND_URL.startswith("https://")
     redirect.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=settings.ENV != "development",
-        samesite="lax",
+        secure=cookie_secure,
+        samesite="none" if cookie_secure else "lax",
         max_age=7 * 24 * 3600,
     )
     return redirect

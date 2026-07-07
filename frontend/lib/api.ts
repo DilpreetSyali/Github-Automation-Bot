@@ -1,10 +1,16 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function request(path: string, options: RequestInit = {}) {
+  const authToken =
+    typeof window !== "undefined" ? window.localStorage.getItem("session_token") : null;
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(options.headers || {}),
+    },
   });
   if (res.status === 401) {
     if (typeof window !== "undefined") window.location.href = "/";

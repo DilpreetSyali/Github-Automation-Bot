@@ -27,7 +27,7 @@ class Settings:
     SESSION_SECRET: str = os.environ.get("SESSION_SECRET", "change-me-in-prod")
 
     # Frontend origin, for CORS + OAuth redirect back
-    FRONTEND_URL: str = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    FRONTEND_URL: str = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
     # Optional: Google Gemini key for the AI triage stretch goal
     GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
