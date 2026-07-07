@@ -34,7 +34,19 @@ rules configured in the dashboard.
 6. The dashboard (behind login, scoped to the logged-in user's own repos)
    polls the event log and lets you add/remove rules.
 
-## Repo layout
+## Live deployment
+- **Frontend**: https://github-automation-bot-beta.vercel.app
+- **Backend**: https://github-automation-bot-3n85.onrender.com
+- **GitHub repo**: https://github.com/DilpreetSyali/Github-Automation-Bot
+
+### How to test the live deployment
+1. Visit https://github-automation-bot-beta.vercel.app
+2. Sign in with GitHub
+3. Connect one of your repos
+4. Open an issue on that repo — the bot will auto-label it and send a Slack alert
+5. Check the dashboard event log to see everything the bot did
+
+
 ```
 backend/    FastAPI app (app/main.py, routers/, models.py)
 frontend/   Next.js app (app/page.tsx, app/dashboard/page.tsx)
@@ -105,10 +117,9 @@ See `backend/.env.example` and `frontend/.env.example`. Never commit a real
   returned to the frontend or logged.
 
 ## Deliverables checklist
-- [ ] Deployed backend URL (Render): `___`
-- [ ] Deployed frontend URL (Vercel): `___`
-- [ ] GitHub repo with commit history
+- [x] Deployed backend URL (Render): `https://github-automation-bot-3n85.onrender.com`
+- [x] Deployed frontend URL (Vercel): `https://github-automation-bot-beta.vercel.app`
+- [x] GitHub repo with commit history
 - [x] `README.md` (this file)
 - [x] `.env.example` for both apps
-- [x] `CLAUDE.md` — AI context file
-- [ ] `AI_NOTES.md` — fill in after building/deploying (template is in place)
+- [x] `AI_NOTES.md` — AI context and notes
