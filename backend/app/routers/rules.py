@@ -30,7 +30,11 @@ async def create_rule(
     db: Session = Depends(get_db),
 ):
     repo = _get_owned_repo(repo_id, user, db)
-    rule = Rule(repo_id=repo.id, **body.dict())
+    data = body.dict()
+    if not data.get("name"):
+        label = data.get("add_label") or "automation"
+        data["name"] = f"{data['event_type']} → {label}"
+    rule = Rule(repo_id=repo.id, **data)
     db.add(rule)
     db.commit()
     db.refresh(rule)
@@ -49,7 +53,11 @@ async def update_rule(
     rule = db.query(Rule).filter(Rule.id == rule_id, Rule.repo_id == repo.id).first()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
-    for k, v in body.dict().items():
+    data = body.dict()
+    if not data.get("name"):
+        label = data.get("add_label") or "automation"
+        data["name"] = f"{data['event_type']} → {label}"
+    for k, v in data.items():
         setattr(rule, k, v)
     db.commit()
     db.refresh(rule)

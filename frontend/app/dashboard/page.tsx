@@ -17,6 +17,8 @@ type EventRow = {
   error?: string; received_at: string; actions: ActionLog[];
 };
 
+const EVENT_TIME_ZONE = "Asia/Kolkata";
+
 const GH_PATH = "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z";
 
 const GhIcon = ({ size = 20 }: { size?: number }) => (
@@ -41,7 +43,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function EventTypeBadge({ type, action }: { type: string; action?: string }) {
-  const colorMap: Record<string, string> = { issues: "#d29922", pull_request: "#58a6ff", push: "#bc8cff", ping: "#8b949e" };
+  const colorMap: Record<string, string> = { issues: "#d29922", ping: "#8b949e" };
   const color = colorMap[type] ?? "#8b949e";
   return (
     <span style={{ display: "inline-block", background: `${color}22`, color, border: `1px solid ${color}44`, borderRadius: 12, padding: "2px 10px", fontSize: 12, fontWeight: 500 }}>
@@ -52,12 +54,62 @@ function EventTypeBadge({ type, action }: { type: string; action?: string }) {
 
 function ActionChip({ action_type, status }: ActionLog) {
   const ok = status === "success";
-  const icons: Record<string, string> = { github_label: "🏷️", slack_notify: "🔔", post_comment: "💬" };
+  const icons: Record<string, string> = {
+    github_label: "🏷️",
+    slack_notify: "🔔",
+    post_comment: "💬",
+    ai_label: "🤖",
+    ai_comment: "🤖",
+    ai_slack: "🤖",
+  };
+  const labels: Record<string, string> = {
+    github_label: "label",
+    slack_notify: "slack",
+    post_comment: "comment",
+    ai_label: "AI label",
+    ai_comment: "AI comment",
+    ai_slack: "AI slack",
+  };
+  const isAI = action_type.startsWith("ai_");
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: ok ? "#1a2f1a" : "#2d1b1b", color: ok ? "#3fb950" : "#f85149", border: `1px solid ${ok ? "#3fb95033" : "#f8514933"}`, borderRadius: 4, padding: "2px 8px", fontSize: 12, marginRight: 4, marginBottom: 4 }}>
-      {icons[action_type] ?? "⚡"} {action_type.replace("_", " ")} {ok ? "✓" : "✗"}
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      background: ok ? (isAI ? "#1a1f3a" : "#1a2f1a") : "#2d1b1b",
+      color: ok ? (isAI ? "#79c0ff" : "#3fb950") : "#f85149",
+      border: `1px solid ${ok ? (isAI ? "#79c0ff33" : "#3fb95033") : "#f8514933"}`,
+      borderRadius: 4, padding: "2px 8px", fontSize: 12, marginRight: 4, marginBottom: 4,
+    }}>
+      {icons[action_type] ?? "⚡"} {labels[action_type] ?? action_type.replace("_", " ")} {ok ? "✓" : "✗"}
     </span>
   );
+}
+
+const NEW_RULE_TEMPLATE = {
+  name: "",
+  event_type: "issues",
+  match_field: "title",
+  match_type: "contains",
+  match_value: "",
+  add_label: "",
+  post_comment: "",
+  slack_notify: true,
+  enabled: true,
+};
+
+function getDefaultRuleName(rule: typeof NEW_RULE_TEMPLATE) {
+  const target = rule.add_label.trim() || "automation";
+  return `${rule.event_type} -> ${target}`;
+}
+
+function formatEventTime(receivedAt: string) {
+  const iso = receivedAt.endsWith("Z") || receivedAt.includes("+")
+    ? receivedAt
+    : `${receivedAt}Z`;
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: EVENT_TIME_ZONE,
+  }).format(new Date(iso));
 }
 
 function RepoCard({ repo, conn, isSelected, isConnecting, onConnect, onSelect }: {
@@ -139,10 +191,7 @@ export default function Dashboard() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "connected">("all");
-  const [newRule, setNewRule] = useState({
-    name: "", event_type: "issues", match_field: "title", match_type: "contains",
-    match_value: "", add_label: "", post_comment: "", slack_notify: true, enabled: true,
-  });
+  const [newRule, setNewRule] = useState(NEW_RULE_TEMPLATE);
 
   useEffect(() => {
     (async () => {
@@ -163,7 +212,7 @@ export default function Dashboard() {
     if (!selected) return;
     const load = async () => {
       const [ev, rl] = await Promise.all([api.repoEvents(selected.id), api.listRules(selected.id)]);
-      setEvents(ev);
+      setEvents(ev.filter((e: EventRow) => !["labeled", "edited"].includes(e.action || "")));
       setRules(rl);
     };
     load();
@@ -184,9 +233,12 @@ export default function Dashboard() {
 
   async function handleCreateRule() {
     if (!selected || !newRule.match_value) return;
-    const rule = await api.createRule(selected.id, newRule);
+    const rule = await api.createRule(selected.id, {
+      ...newRule,
+      name: newRule.name.trim() || getDefaultRuleName(newRule),
+    });
     setRules((p) => [...p, rule]);
-    setNewRule({ ...newRule, name: "", match_value: "", add_label: "", post_comment: "" });
+    setNewRule(NEW_RULE_TEMPLATE);
   }
 
   async function handleDeleteRule(id: number) {
@@ -341,11 +393,16 @@ export default function Dashboard() {
 
                 {/* Add rule */}
                 <div style={{ padding: "16px 20px", background: "#0d1117", borderTop: "1px solid #21262d" }}>
-                  <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>New rule</div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>New rule</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <input
+                      placeholder="rule name"
+                      value={newRule.name}
+                      onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
+                      style={{ width: 130 }}
+                    />
                     <select value={newRule.event_type} onChange={(e) => setNewRule({ ...newRule, event_type: e.target.value })} style={{ width: 130 }}>
                       <option value="issues">issues</option>
-                      <option value="pull_request">pull_request</option>
                     </select>
                     <span style={{ color: "#8b949e", fontSize: 13 }}>if</span>
                     <select value={newRule.match_field} onChange={(e) => setNewRule({ ...newRule, match_field: e.target.value })} style={{ width: 100 }}>
@@ -395,7 +452,9 @@ export default function Dashboard() {
                     <tbody>
                       {events.map((ev) => (
                         <tr key={ev.id}>
-                          <td style={{ paddingLeft: 20, color: "#8b949e", whiteSpace: "nowrap", fontSize: 12 }}>{new Date(ev.received_at).toLocaleString()}</td>
+                          <td style={{ paddingLeft: 20, color: "#8b949e", whiteSpace: "nowrap", fontSize: 12 }}>
+                            {formatEventTime(ev.received_at)}
+                          </td>
                           <td><EventTypeBadge type={ev.event_type} action={ev.action} /></td>
                           <td><StatusBadge status={ev.status} /></td>
                           <td>{ev.actions.length === 0 ? <span style={{ color: "#8b949e", fontSize: 12 }}>—</span> : ev.actions.map((a, i) => <ActionChip key={i} {...a} />)}</td>

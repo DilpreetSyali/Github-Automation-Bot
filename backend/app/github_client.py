@@ -53,7 +53,7 @@ async def create_webhook(access_token: str, owner: str, repo: str, webhook_url: 
             json={
                 "name": "web",
                 "active": True,
-                "events": ["issues", "pull_request", "push"],
+                "events": ["issues"],
                 "config": {
                     "url": webhook_url,
                     "content_type": "json",
@@ -73,6 +73,30 @@ async def add_label(access_token: str, owner: str, repo: str, issue_number: int,
             headers=_auth_headers(access_token),
             json={"labels": [label]},
         )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def create_label(
+    access_token: str,
+    owner: str,
+    repo: str,
+    label: str,
+    color: str = "1f6feb",
+    description: str | None = None,
+) -> dict:
+    async with httpx.AsyncClient() as client:
+        payload = {"name": label, "color": color}
+        if description:
+            payload["description"] = description
+        resp = await client.post(
+            f"{GITHUB_API}/repos/{owner}/{repo}/labels",
+            headers=_auth_headers(access_token),
+            json=payload,
+        )
+        if resp.status_code == 422:
+            # Label already exists.
+            return {"name": label, "existing": True}
         resp.raise_for_status()
         return resp.json()
 

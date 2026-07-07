@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import hashlib
 import hmac
 import json
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.gemini_client import triage_issue
-from app.github_client import add_label, post_comment
+from app.github_client import add_label, create_label, post_comment
 from app.models import ActionLog, Event, Repo, Rule
 from app.slack_client import send_slack_message
 
@@ -19,13 +20,10 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger("webhooks")
 
 MAX_ATTEMPTS = 3
-RETRY_BACKOFF_SECONDS = [1, 3]  # delay before attempt 2, attempt 3
+RETRY_BACKOFF_SECONDS = [1, 3]
 
 
 def _verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
-    """Constant-time HMAC-SHA256 check against GITHUB_WEBHOOK_SECRET.
-    This is what stops forged requests from third parties hitting this
-    endpoint and being treated as real GitHub events."""
     if not signature_header or not signature_header.startswith("sha256="):
         return False
     expected = hmac.new(
@@ -36,32 +34,32 @@ def _verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
 
 
 async def _retry(coro_factory, action_type: str, event: Event, db: Session):
-    """Runs an outbound call (GitHub write-back / Slack notify) with retries.
-    Every attempt — success or failure — is written to ActionLog, so a
-    downstream outage shows up as visible failed attempts rather than a
-    silently dropped event."""
     last_error = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             result = await coro_factory()
-            db.add(ActionLog(
-                event_id=event.id,
-                action_type=action_type,
-                status="success",
-                detail=str(result)[:1000],
-                attempt=attempt,
-            ))
+            db.add(
+                ActionLog(
+                    event_id=event.id,
+                    action_type=action_type,
+                    status="success",
+                    detail=str(result)[:1000],
+                    attempt=attempt,
+                )
+            )
             db.commit()
             return
-        except Exception as exc:  # noqa: BLE001 - we want to log and retry any failure
+        except Exception as exc:  # noqa: BLE001
             last_error = exc
-            db.add(ActionLog(
-                event_id=event.id,
-                action_type=action_type,
-                status="failed",
-                detail=str(exc)[:1000],
-                attempt=attempt,
-            ))
+            db.add(
+                ActionLog(
+                    event_id=event.id,
+                    action_type=action_type,
+                    status="failed",
+                    detail=str(exc)[:1000],
+                    attempt=attempt,
+                )
+            )
             db.commit()
             if attempt < MAX_ATTEMPTS:
                 await asyncio.sleep(RETRY_BACKOFF_SECONDS[attempt - 1])
@@ -69,8 +67,6 @@ async def _retry(coro_factory, action_type: str, event: Event, db: Session):
 
 
 def _extract_matchable(event_type: str, payload: dict) -> tuple[dict, int | None]:
-    """Pulls the fields rules can match against, plus the issue/PR number
-    GitHub write-back APIs need."""
     obj = payload.get("issue") or payload.get("pull_request") or {}
     fields = {
         "title": obj.get("title", ""),
@@ -114,8 +110,6 @@ async def github_webhook(
     try:
         repo = db.query(Repo).filter(Repo.owner == owner, Repo.name == name).first()
         if not repo:
-            # Not a repo we manage (or not connected yet) - accept but don't record,
-            # so GitHub doesn't retry a webhook we intentionally ignore.
             logger.warning("Webhook for unknown repo %s/%s", owner, name)
             return {"ok": True, "recorded": False}
 
@@ -131,8 +125,6 @@ async def github_webhook(
         try:
             db.commit()
         except IntegrityError:
-            # Same delivery ID already processed (GitHub redelivery after a
-            # timeout on our end, or a genuine replay). Idempotent no-op.
             db.rollback()
             logger.info("Duplicate delivery %s ignored", x_github_delivery)
             return {"ok": True, "duplicate": True}
@@ -149,26 +141,22 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
         fields, issue_number = _extract_matchable(event.event_type, payload)
         access_token = repo.owner_user.access_token
 
-        # --- AI TRIAGE (issues only, on open/reopen) ---
         ai_result = None
-        if (
-            event.event_type == "issues"
-            and event.action in ("opened", "reopened")
-            and issue_number
-            and settings.GEMINI_API_KEY
-        ):
+        if event.event_type == "issues" and event.action in ("opened", "reopened", "closed") and issue_number:
             ai_result = await triage_issue(fields["title"], fields["body"])
             if ai_result:
-                # Apply AI-suggested label
+                issue_is_urgent = bool(ai_result.get("urgent"))
+                await _ensure_label(access_token, repo.owner, repo.name, ai_result["label"])
                 await _retry(
                     lambda label=ai_result["label"]: add_label(
                         access_token, repo.owner, repo.name, issue_number, label
                     ),
-                    "ai_label", event, db,
+                    "ai_label",
+                    event,
+                    db,
                 )
-                # Post AI summary as a comment on the issue
                 comment = (
-                    f"🤖 **AI Triage**\n\n"
+                    "🤖 **AI Triage**\n\n"
                     f"**Suggested label:** `{ai_result['label']}`\n"
                     f"**Summary:** {ai_result['summary']}"
                 )
@@ -176,18 +164,37 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
                     lambda c=comment: post_comment(
                         access_token, repo.owner, repo.name, issue_number, c
                     ),
-                    "ai_comment", event, db,
+                    "ai_comment",
+                    event,
+                    db,
                 )
-                # Send enriched Slack message
-                slack_text = (
-                    f":robot_face: *AI Triage* — *{repo.owner}/{repo.name}*\n"
-                    f"*Issue:* \"{fields['title']}\"\n"
-                    f"*Label:* `{ai_result['label']}`\n"
-                    f"*Summary:* {ai_result['summary']}"
+
+                urgent = event.action == "opened" and (
+                    issue_is_urgent or ai_result["label"] == "bug"
+                )
+                slack_text = _build_issue_slack_message(
+                    repo.owner,
+                    repo.name,
+                    event.action or "updated",
+                    fields["title"],
+                    ai_result["label"],
+                    ai_result["summary"],
+                    urgent=urgent,
+                )
+                await _retry(lambda t=slack_text: send_slack_message(t), "ai_slack", event, db)
+            else:
+                urgent = event.action == "opened"
+                slack_text = _build_issue_slack_message(
+                    repo.owner,
+                    repo.name,
+                    event.action or "updated",
+                    fields["title"],
+                    "untriaged",
+                    "AI triage unavailable",
+                    urgent=urgent,
                 )
                 await _retry(lambda t=slack_text: send_slack_message(t), "ai_slack", event, db)
 
-        # --- RULE-BASED PROCESSING ---
         rules = (
             db.query(Rule)
             .filter(Rule.repo_id == repo.id, Rule.event_type == event.event_type, Rule.enabled == True)  # noqa: E712
@@ -201,14 +208,19 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
             matched_any = True
 
             if rule.add_label and issue_number:
+                await _ensure_label(access_token, repo.owner, repo.name, rule.add_label)
                 await _retry(
                     lambda: add_label(access_token, repo.owner, repo.name, issue_number, rule.add_label),
-                    "github_label", event, db,
+                    "github_label",
+                    event,
+                    db,
                 )
             if rule.post_comment and issue_number:
                 await _retry(
                     lambda: post_comment(access_token, repo.owner, repo.name, issue_number, rule.post_comment),
-                    "github_comment", event, db,
+                    "github_comment",
+                    event,
+                    db,
                 )
             if rule.slack_notify:
                 ai_note = f"\n🤖 _{ai_result['summary']}_" if ai_result else ""
@@ -225,6 +237,29 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
         event.error = str(exc)[:2000]
         logger.exception("Failed processing event %s", event.id)
     finally:
-        import datetime as dt
         event.processed_at = dt.datetime.utcnow()
         db.commit()
+
+
+async def _ensure_label(access_token: str, owner: str, repo: str, label: str) -> None:
+    await create_label(access_token, owner, repo, label)
+
+
+def _build_issue_slack_message(
+    owner: str,
+    repo: str,
+    action: str,
+    title: str,
+    label: str,
+    summary: str,
+    urgent: bool = False,
+) -> str:
+    prefix = ":rotating_light: " if urgent else ":speech_balloon: "
+    heading = "URGENT ISSUE" if urgent else "Issue update"
+    return (
+        f"{prefix}*{heading}* — *{owner}/{repo}*\n"
+        f"*Action:* {action}\n"
+        f"*Issue:* \"{title}\"\n"
+        f"*Label:* `{label}`\n"
+        f"*Summary:* {summary}"
+    )

@@ -72,7 +72,10 @@ async def repo_events(
     events = (
         db.query(Event)
         .options(joinedload(Event.actions))
-        .filter(Event.repo_id == repo.id)
+        .filter(
+            Event.repo_id == repo.id,
+            Event.event_type == "issues",
+        )
         .order_by(Event.received_at.desc())
         .limit(100)
         .all()
