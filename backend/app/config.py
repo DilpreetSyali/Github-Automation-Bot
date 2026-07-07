@@ -16,6 +16,9 @@ class Settings:
 
     # Slack Incoming Webhook URL (free, no card, per Slack workspace)
     SLACK_WEBHOOK_URL: str = os.environ.get("SLACK_WEBHOOK_URL", "")
+    SLACK_CLIENT_ID: str = os.environ.get("SLACK_CLIENT_ID", "")
+    SLACK_CLIENT_SECRET: str = os.environ.get("SLACK_CLIENT_SECRET", "")
+    SLACK_OAUTH_REDIRECT_URL: str = os.environ.get("SLACK_OAUTH_REDIRECT_URL", "")
 
     # Postgres (Neon/Supabase) connection string
     DATABASE_URL: str = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")

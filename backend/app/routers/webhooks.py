@@ -13,7 +13,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.gemini_client import triage_issue
 from app.github_client import add_label, create_label, post_comment
-from app.models import ActionLog, Event, Repo, Rule
+from app.models import ActionLog, Event, Repo, Rule, SlackConnection
 from app.slack_client import send_slack_message
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -140,6 +140,10 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
     try:
         fields, issue_number = _extract_matchable(event.event_type, payload)
         access_token = repo.owner_user.access_token
+        slack_conn = db.query(SlackConnection).filter(SlackConnection.user_id == repo.user_id).first()
+        slack_access_token = slack_conn.access_token if slack_conn else None
+        slack_channel_id = slack_conn.channel_id if slack_conn else None
+        slack_webhook = slack_conn.webhook_url if slack_conn else None
 
         ai_result = None
         if event.event_type == "issues" and event.action in ("opened", "reopened", "closed") and issue_number:
@@ -181,7 +185,12 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
                     ai_result["summary"],
                     urgent=urgent,
                 )
-                await _retry(lambda t=slack_text: send_slack_message(t), "ai_slack", event, db)
+                await _retry(
+                    lambda t=slack_text: send_slack_message(t, slack_access_token, slack_channel_id, slack_webhook),
+                    "ai_slack",
+                    event,
+                    db,
+                )
             else:
                 urgent = event.action == "opened"
                 slack_text = _build_issue_slack_message(
@@ -193,7 +202,12 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
                     "AI triage unavailable",
                     urgent=urgent,
                 )
-                await _retry(lambda t=slack_text: send_slack_message(t), "ai_slack", event, db)
+                await _retry(
+                    lambda t=slack_text: send_slack_message(t, slack_access_token, slack_channel_id, slack_webhook),
+                    "ai_slack",
+                    event,
+                    db,
+                )
 
         rules = (
             db.query(Rule)
@@ -228,7 +242,12 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
                     f":robot_face: *{repo.owner}/{repo.name}* — {event.event_type} "
                     f"{event.action or ''}: \"{fields['title']}\" matched rule *{rule.name}*{ai_note}"
                 )
-                await _retry(lambda: send_slack_message(text), "slack_notify", event, db)
+                await _retry(
+                    lambda: send_slack_message(text, slack_access_token, slack_channel_id, slack_webhook),
+                    "slack_notify",
+                    event,
+                    db,
+                )
 
         event.status = "processed"
         _ = matched_any

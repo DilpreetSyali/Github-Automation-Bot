@@ -21,6 +21,7 @@ class User(Base):
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
     repos = relationship("Repo", back_populates="owner_user", cascade="all, delete-orphan")
+    slack_connections = relationship("SlackConnection", back_populates="user", cascade="all, delete-orphan")
 
 
 class Repo(Base):
@@ -100,3 +101,20 @@ class Rule(Base):
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
     repo = relationship("Repo", back_populates="rules")
+
+
+class SlackConnection(Base):
+    __tablename__ = "slack_connections"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    access_token = Column(Text, nullable=True)
+    team_id = Column(String, nullable=True)
+    team_name = Column(String, nullable=True)
+    channel_id = Column(String, nullable=True)
+    channel_name = Column(String, nullable=True)
+    webhook_url = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+    updated_at = Column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+
+    user = relationship("User", back_populates="slack_connections")

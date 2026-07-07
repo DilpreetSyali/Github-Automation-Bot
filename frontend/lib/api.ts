@@ -20,6 +20,12 @@ async function request(path: string, options: RequestInit = {}) {
 
 export const api = {
   me: () => request("/auth/me"),
+  slackConnection: () => request("/auth/slack"),
+  updateSlackConnection: (payload: any) =>
+    request("/auth/slack", { method: "PUT", body: JSON.stringify(payload) }),
+  slackLoginUrl: () => `${API_URL}/auth/slack/login`,
+  slackSignupUrl: () => "https://slack.com/create",
+  slackChannels: () => request("/auth/slack/channels"),
   githubRepos: () => request("/repos/github"),
   connectedRepos: () => request("/repos"),
   connectRepo: (owner: string, name: string) =>

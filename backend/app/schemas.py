@@ -8,6 +8,9 @@ class UserOut(BaseModel):
     id: int
     username: str
     avatar_url: Optional[str] = None
+    slack_connected: bool = False
+    slack_channel_name: Optional[str] = None
+    slack_team_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -67,6 +70,25 @@ class EventOut(BaseModel):
     error: Optional[str] = None
     received_at: dt.datetime
     actions: list[ActionLogOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class SlackConnectionIn(BaseModel):
+    channel_id: str
+    channel_name: Optional[str] = None
+    team_id: Optional[str] = None
+    team_name: Optional[str] = None
+    access_token: Optional[str] = None
+
+
+class SlackConnectionOut(BaseModel):
+    team_id: Optional[str] = None
+    team_name: Optional[str] = None
+    channel_id: Optional[str] = None
+    channel_name: Optional[str] = None
+    connected: bool = True
 
     class Config:
         from_attributes = True

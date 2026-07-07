@@ -182,6 +182,11 @@ function RepoCard({ repo, conn, isSelected, isConnecting, onConnect, onSelect }:
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
+  const [slackChannelName, setSlackChannelName] = useState("");
+  const [slackWorkspaceName, setSlackWorkspaceName] = useState("");
+  const [slackChannels, setSlackChannels] = useState<{ id: string; name: string; is_private: boolean }[]>([]);
+  const [slackSaving, setSlackSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [ghRepos, setGhRepos] = useState<GhRepo[]>([]);
   const [connected, setConnected] = useState<Repo[]>([]);
   const [selected, setSelected] = useState<Repo | null>(null);
@@ -192,16 +197,27 @@ export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "connected">("all");
   const [newRule, setNewRule] = useState(NEW_RULE_TEMPLATE);
+  const slackConnected = Boolean(slackChannelName || slackWorkspaceName);
 
   useEffect(() => {
     (async () => {
       try {
         const me = await api.me();
         setUser(me);
+        const slack = await api.slackConnection().catch(() => null);
+        if (slack) {
+          setSlackChannelName(slack.channel_name || "");
+          setSlackWorkspaceName(slack.team_name || "");
+        }
+        const channels = await api.slackChannels().catch(() => []);
+        setSlackChannels(channels);
         const [gh, conn] = await Promise.all([api.githubRepos(), api.connectedRepos()]);
         setGhRepos(gh);
         setConnected(conn);
         if (conn.length > 0) setSelected(conn[0]);
+        setLoadError(null);
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : "Failed to load dashboard");
       } finally {
         setLoading(false);
       }
@@ -247,6 +263,21 @@ export default function Dashboard() {
     setRules((p) => p.filter((r) => r.id !== id));
   }
 
+  async function handleSaveSlack() {
+    setSlackSaving(true);
+    try {
+      const slack = await api.updateSlackConnection({
+        channel_id: slackChannels.find((c) => c.name === slackChannelName)?.id || "",
+        channel_name: slackChannelName || null,
+        team_name: slackWorkspaceName || null,
+      });
+      setSlackChannelName(slack.channel_name || "");
+      setSlackWorkspaceName(slack.team_name || "");
+    } finally {
+      setSlackSaving(false);
+    }
+  }
+
   const filtered = ghRepos
     .filter((r) => r.full_name.toLowerCase().includes(search.toLowerCase()))
     .filter((r) => activeTab === "all" || connected.find((c) => c.owner === r.owner && c.name === r.name));
@@ -256,6 +287,25 @@ export default function Dashboard() {
       <GhIcon size={18} /> Loading…
     </div>
   );
+
+  if (loadError) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0d1117", color: "#f0f6fc", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 560, width: "100%", background: "#161b22", border: "1px solid #30363d", borderRadius: 12, padding: 24 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Dashboard unavailable</div>
+          <div style={{ color: "#8b949e", marginBottom: 16, lineHeight: 1.6 }}>
+            The frontend could not reach the backend API. Please make sure the backend is running and `NEXT_PUBLIC_API_URL` points to the right server.
+          </div>
+          <div style={{ background: "#0d1117", border: "1px solid #30363d", borderRadius: 8, padding: 12, fontFamily: "monospace", color: "#f85149", marginBottom: 16, overflowX: "auto" }}>
+            {loadError}
+          </div>
+          <div style={{ color: "#8b949e", fontSize: 13 }}>
+            Expected API base: {API_URL}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#0d1117" }}>
@@ -344,6 +394,48 @@ export default function Dashboard() {
                   style={{ color: "#58a6ff", fontSize: 13, display: "flex", alignItems: "center", gap: 5, textDecoration: "none" }}>
                   <GhIcon size={14} /> View on GitHub ↗
                 </a>
+              </div>
+
+              <div style={{ background: "#161b22", border: "1px solid #30363d", borderRadius: 10, padding: "16px 20px", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ color: "#f0f6fc", fontWeight: 600, fontSize: 14 }}>Slack connection</div>
+                    <div style={{ color: "#8b949e", fontSize: 12 }}>Connect your own Slack workspace and pick the channel for alerts.</div>
+                  </div>
+                  <span style={{ background: slackConnected ? "#1a2f1a" : "#1c1f28", color: slackConnected ? "#3fb950" : "#8b949e", border: `1px solid ${slackConnected ? "#3fb95033" : "#30363d"}`, borderRadius: 12, padding: "2px 10px", fontSize: 11, fontWeight: 600 }}>
+                    {slackConnected ? `● ${slackChannelName || "connected"}` : "not connected"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <a href={api.slackLoginUrl()} style={{ background: "#4a154b", color: "white", textDecoration: "none", border: "1px solid rgba(240,246,252,0.1)", borderRadius: 6, padding: "10px 14px", fontWeight: 600 }}>
+                    {slackConnected ? "Reconnect Slack" : "Connect Slack"}
+                  </a>
+                  {!slackConnected && (
+                    <a href={api.slackSignupUrl()} target="_blank" rel="noreferrer" style={{ background: "transparent", color: "#f0f6fc", textDecoration: "none", border: "1px solid #30363d", borderRadius: 6, padding: "10px 14px", fontWeight: 600 }}>
+                      Don’t have Slack? Create workspace
+                    </a>
+                  )}
+                </div>
+                <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+                  <label style={{ color: "#8b949e", fontSize: 12 }}>
+                    Channel
+                  </label>
+                  <select value={slackChannelName} onChange={(e) => setSlackChannelName(e.target.value)} style={{ minWidth: 220, flex: 1 }}>
+                    <option value="">Select a channel</option>
+                    {slackChannels.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.is_private ? "🔒 " : "#"}{c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleSaveSlack}
+                    disabled={!slackChannelName || slackSaving}
+                    style={{ background: !slackChannelName || slackSaving ? "#21262d" : "#238636", border: "1px solid rgba(240,246,252,0.1)", color: !slackChannelName || slackSaving ? "#8b949e" : "white", fontWeight: 600, maxWidth: 160 }}
+                  >
+                    {slackSaving ? "Saving..." : "Save channel"}
+                  </button>
+                </div>
               </div>
 
               {/* Stats */}

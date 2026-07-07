@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import User
+from app.models import SlackConnection, User
 
 SESSION_COOKIE_NAME = "session"
 ALGO = "HS256"
@@ -38,3 +38,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+def get_user_slack_connection(db: Session, user_id: int) -> SlackConnection | None:
+    return db.query(SlackConnection).filter(SlackConnection.user_id == user_id).first()
