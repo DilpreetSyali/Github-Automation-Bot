@@ -217,6 +217,10 @@ export default function Dashboard() {
         if (conn.length > 0) setSelected(conn[0]);
         setLoadError(null);
       } catch (err) {
+        // If unauthorized, redirect to login page
+        if (typeof window !== "undefined") {
+          window.location.href = "/";
+        }
         setLoadError(err instanceof Error ? err.message : "Failed to load dashboard");
       } finally {
         setLoading(false);
@@ -287,7 +291,6 @@ export default function Dashboard() {
       <GhIcon size={18} /> Loading…
     </div>
   );
-
   if (loadError) {
     return (
       <div style={{ minHeight: "100vh", background: "#0d1117", color: "#f0f6fc", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
