@@ -33,6 +33,7 @@ rules configured in the dashboard.
    up as a visible failed action, not a silently dropped event.
 6. The dashboard (behind login, scoped to the logged-in user's own repos)
    polls the event log and lets you add/remove rules.
+7. PRs are supported too, so pull request webhooks can trigger the same automation flow.
 
 ## Live deployment
 - **Frontend**: https://github-automation-bot-beta.vercel.app
