@@ -94,7 +94,9 @@ To let each user connect their own Slack workspace:
 - Create a Slack app with `chat:write`, `channels:read`, `groups:read`, `im:read`, and `mpim:read`.
 - Set the redirect URL to `http://localhost:8000/auth/slack/callback`.
 - Put `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_OAUTH_REDIRECT_URL` in `backend/.env`.
+- If you want the homepage "Add to Slack" button to point at your app install flow, set `NEXT_PUBLIC_SLACK_CLIENT_ID` in `frontend/.env.local`.
 - In the dashboard, click `Connect Slack`, authorize Slack, then choose a channel.
+- If Slack shows `invalid_team_for_non_distributed_app`, activate public distribution in the Slack app settings before testing installs from other workspaces.
 
 ## Environment variables
 See `backend/.env.example` and `frontend/.env.example`. Never commit a real

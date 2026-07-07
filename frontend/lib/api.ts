@@ -1,4 +1,29 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export const SLACK_CLIENT_ID = process.env.NEXT_PUBLIC_SLACK_CLIENT_ID || "";
+
+export function getSlackInstallUrl() {
+  if (!SLACK_CLIENT_ID) {
+    return "https://slack.com/create";
+  }
+
+  const scope = [
+    "channels:join",
+    "incoming-webhook",
+    "chat:write",
+    "channels:read",
+    "groups:read",
+    "im:read",
+    "mpim:read",
+  ].join(",");
+
+  const params = new URLSearchParams({
+    client_id: SLACK_CLIENT_ID,
+    scope,
+    user_scope: "",
+  });
+
+  return `https://slack.com/oauth/v2/authorize?${params.toString()}`;
+}
 
 async function request(path: string, options: RequestInit = {}) {
   const authToken =
@@ -30,7 +55,7 @@ export const api = {
   updateSlackConnection: (payload: any) =>
     request("/auth/slack", { method: "PUT", body: JSON.stringify(payload) }),
   slackLoginUrl: () => `${API_URL}/auth/slack/login`,
-  slackSignupUrl: () => "https://slack.com/create",
+  slackSignupUrl: () => getSlackInstallUrl(),
   slackChannels: () => request("/auth/slack/channels"),
   githubRepos: () => request("/repos/github"),
   connectedRepos: () => request("/repos"),

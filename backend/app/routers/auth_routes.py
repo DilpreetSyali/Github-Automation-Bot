@@ -146,11 +146,10 @@ async def upsert_slack_connection(
 async def slack_login(user: User = Depends(get_current_user)):
     if not settings.SLACK_CLIENT_ID or not settings.SLACK_OAUTH_REDIRECT_URL:
         raise HTTPException(status_code=400, detail="Slack OAuth is not configured")
-    # Pass user id as state so we can identify the user on callback
     url = (
         "https://slack.com/oauth/v2/authorize"
         f"?client_id={settings.SLACK_CLIENT_ID}"
-        f"&scope=chat%3Awrite%2Cchannels%3Aread%2Cchannels%3Ajoin%2Cgroups%3Aread%2Cim%3Aread%2Cmpim%3Aread"
+        f"&scope=channels:join,incoming-webhook,chat:write,channels:read,groups:read,im:read,mpim:read"
         f"&redirect_uri={settings.SLACK_OAUTH_REDIRECT_URL}"
         f"&state={user.id}"
     )
