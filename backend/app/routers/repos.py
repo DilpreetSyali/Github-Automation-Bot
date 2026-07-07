@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user
 from app.config import settings
 from app.database import get_db
-from app.github_client import create_webhook, list_user_repos
+from app.github_client import create_webhook, list_user_repos, update_webhook
 from app.models import Event, Repo, User
 from app.schemas import ConnectRepoIn, EventOut, RepoOut
 
@@ -39,6 +39,23 @@ async def connect_repo(
         .first()
     )
     if existing:
+        webhook_url = f"{settings.GITHUB_OAUTH_REDIRECT_URL.rsplit('/auth', 1)[0]}/webhooks/github"
+        if existing.webhook_id:
+            await update_webhook(
+                user.access_token,
+                body.owner,
+                body.name,
+                existing.webhook_id,
+                webhook_url,
+                settings.GITHUB_WEBHOOK_SECRET,
+            )
+        else:
+            hook = await create_webhook(
+                user.access_token, body.owner, body.name, webhook_url, settings.GITHUB_WEBHOOK_SECRET
+            )
+            existing.webhook_id = str(hook.get("id", ""))
+            db.commit()
+            db.refresh(existing)
         return existing
 
     webhook_url = f"{settings.GITHUB_OAUTH_REDIRECT_URL.rsplit('/auth', 1)[0]}/webhooks/github"
@@ -74,7 +91,7 @@ async def repo_events(
         .options(joinedload(Event.actions))
         .filter(
             Event.repo_id == repo.id,
-            Event.event_type == "issues",
+            Event.event_type.in_(["issues", "pull_request"]),
         )
         .order_by(Event.received_at.desc())
         .limit(100)
