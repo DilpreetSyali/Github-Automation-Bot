@@ -53,7 +53,34 @@ async def create_webhook(access_token: str, owner: str, repo: str, webhook_url: 
             json={
                 "name": "web",
                 "active": True,
-                "events": ["issues"],
+                "events": ["issues", "pull_request"],
+                "config": {
+                    "url": webhook_url,
+                    "content_type": "json",
+                    "secret": secret,
+                    "insecure_ssl": "0",
+                },
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def update_webhook(
+    access_token: str,
+    owner: str,
+    repo: str,
+    hook_id: str,
+    webhook_url: str,
+    secret: str,
+) -> dict:
+    async with httpx.AsyncClient() as client:
+        resp = await client.patch(
+            f"{GITHUB_API}/repos/{owner}/{repo}/hooks/{hook_id}",
+            headers=_auth_headers(access_token),
+            json={
+                "active": True,
+                "events": ["issues", "pull_request"],
                 "config": {
                     "url": webhook_url,
                     "content_type": "json",

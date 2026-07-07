@@ -43,7 +43,11 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function EventTypeBadge({ type, action }: { type: string; action?: string }) {
-  const colorMap: Record<string, string> = { issues: "#d29922", ping: "#8b949e" };
+  const colorMap: Record<string, string> = {
+    issues: "#d29922",
+    pull_request: "#7c9cff",
+    ping: "#8b949e",
+  };
   const color = colorMap[type] ?? "#8b949e";
   return (
     <span style={{ display: "inline-block", background: `${color}22`, color, border: `1px solid ${color}44`, borderRadius: 12, padding: "2px 10px", fontSize: 12, fontWeight: 500 }}>
