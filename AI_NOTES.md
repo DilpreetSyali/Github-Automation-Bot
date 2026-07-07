@@ -1,71 +1,103 @@
 # AI Notes
 
-## Tools & Stack
+## Project Summary
 
-**AI tool used:** Kiro (AI-powered IDE by AWS)
+This project is a full-stack GitHub automation bot built with a FastAPI backend and a Next.js frontend.
+It supports two automation paths:
 
-**Stack:**
+- Manual, user-configurable rules from the dashboard
+- AI-assisted triage for issue labeling and urgency detection
+
+The system listens to GitHub webhooks, verifies every request with HMAC-SHA256, deduplicates deliveries
+with a database unique constraint, and then applies the configured automation flow. For urgent issues,
+the bot can also notify Slack.
+
+## Stack
+
 - Backend: Python 3.11, FastAPI, SQLAlchemy, psycopg2, PyJWT, httpx
 - Frontend: Next.js 14 (App Router), TypeScript, React
-- Database: PostgreSQL (local dev), Neon Postgres (production)
-- Auth: GitHub OAuth App, signed session cookies (JWT)
+- Database: PostgreSQL locally, Neon Postgres in production
+- Auth: GitHub OAuth App with signed session cookies
 - Notifications: Slack Incoming Webhooks
-- Tunnel (local dev): ngrok
+- AI: Gemini triage for label suggestion, summary generation, and urgency detection
+- Deployment: Render for backend, Vercel for frontend
 
----
+## How AI Was Used
 
-## How I Used AI
+I used AI as an implementation accelerator, not as a replacement for engineering judgment.
 
-I used Kiro selectively — primarily as a faster way to write boilerplate I already knew how to write, not as a replacement for understanding the system.
+What AI helped with:
 
-**Where I used Kiro:**
-- Initial file scaffolding (models, router stubs, layout shell)
-- Generating repetitive CRUD patterns I've written before
-- Occasional syntax lookups for SQLAlchemy expressions
+- Boilerplate generation for routers, schemas, and UI scaffolding
+- Drafting repetitive CRUD and display components
+- Speeding up iteration on the issue triage flow
+- Helping structure Slack and dashboard output formats
 
-**Where I did NOT use Kiro:**
-- Architecture and data model decisions (see below)
-- Debugging — I diagnosed all issues myself by reading logs and tracing the code
-- Security decisions (signature verification order, idempotency strategy, cookie flags)
-- Service selection (why Neon, why plain OAuth App, why polling vs. websockets)
-- The deployment configuration and environment wiring
+What I verified and designed myself:
 
-Rough split: ~25% AI-assisted (scaffolding, boilerplate), ~75% written and reasoned through by me.
+- Webhook security and signature verification order
+- Idempotency strategy using GitHub delivery IDs
+- Data model design for events, actions, repos, and rules
+- Deployment wiring for Render, Vercel, and Neon
+- Which parts should remain manual rules vs AI automation
 
----
+## Manual + AI Automation
 
-## Key Decisions I Made
+The final product intentionally includes both options:
 
-**1. Separate `events` and `action_logs` tables**
+- Manual rules let the user define match conditions in the dashboard and trigger labels, comments,
+  and Slack notifications based on those rules.
+- AI triage reads the issue title and body, infers a label, writes a short summary, and escalates to
+  Slack when the issue appears urgent.
 
-A single webhook delivery can trigger multiple downstream actions — labeling an issue *and* sending a Slack alert. I wanted each action's outcome logged independently so a Slack outage shows up as a failed `action_log` row, not a missing event. This was my call; Kiro's initial suggestion was a single `status` boolean on the event row.
+That combination was important because it gives the app both deterministic control and intelligent
+automation. Manual rules cover exact-match workflows, while AI handles open-ended issue language.
 
-**2. Idempotency at the database layer via `delivery_id` unique constraint**
+## Key Engineering Decisions
 
-GitHub re-delivers webhooks on timeout or 5xx. I enforced deduplication using a DB-level unique constraint on the GitHub-provided `X-GitHub-Delivery` header value. An in-memory set would have been simpler to write but wouldn't survive a process restart or redeploy on Render's free tier. I specifically chose the DB constraint because it's durable by default.
+### 1. Separate `events` and `action_logs`
 
-**3. Signature verification before any DB write or outbound call**
+A single webhook delivery can trigger multiple downstream actions. I kept the event record separate
+from the action log so each GitHub or Slack action can succeed or fail independently and still be
+audited later.
 
-The webhook handler verifies `X-Hub-Signature-256` (HMAC-SHA256) as the very first thing it does — before parsing the payload, before writing to the DB, before calling GitHub or Slack. This was a deliberate security decision. If verification is done after parsing, a forged request can still cause DB writes. I caught a version of this in an early draft where the signature check was misplaced and moved it to the top.
+### 2. Database-level idempotency
 
----
+GitHub redelivers webhooks on retries and timeouts. To prevent duplicate processing, I used the
+GitHub `X-GitHub-Delivery` value with a unique constraint in the database instead of relying on
+in-memory deduplication.
+
+### 3. Signature verification first
+
+The webhook handler validates `X-Hub-Signature-256` before any database write or outbound API call.
+That keeps forged requests from ever reaching downstream logic.
+
+### 4. AI fallback behavior
+
+Because Gemini can hit rate limits on the free tier, I added a fallback classifier so the bot still
+produces a label and urgency signal when the model is temporarily unavailable.
 
 ## Hardest Bug
 
-**The `.env` file was silently ignored.**
+The most subtle issue was that environment variables were not being loaded consistently during early
+development. The app appeared configured, but the OAuth flow and backend services would fail because
+the runtime environment was not matching the local `.env` file.
 
-The backend's `config.py` used `os.environ.get("GITHUB_CLIENT_ID", "")` but never called `load_dotenv()`. FastAPI doesn't auto-load `.env` files — that's a Python-dotenv concern, not a framework concern. The result was every environment variable reading as an empty string, so the GitHub OAuth redirect URL had `client_id=` blank, which GitHub showed as a 404 page.
+I resolved that by explicitly loading environment variables in the backend configuration and by making
+the deployment setup more explicit for Render and Vercel.
 
-I noticed it by looking at the actual URL GitHub was showing in the browser — the query parameters were empty despite the `.env` being correctly filled. Once I traced back to `config.py` and saw there was no `load_dotenv()` call, the fix was one line. The lesson: always verify your env loading actually runs, not just that the file exists.
+## What I Would Improve With More Time
 
-A secondary issue: setting `DATABASE_URL=` (empty string) in `.env` didn't fall back to the SQLite default — an empty string is not the same as an unset variable. SQLAlchemy crashed with `Could not parse URL from string ''`. Fixed by explicitly setting `DATABASE_URL=sqlite:///./dev.db` rather than leaving it blank.
+- Add Alembic migrations instead of relying on startup table creation
+- Replace the OAuth App flow with a GitHub App installation flow for tighter repo-scoped permissions
+- Add richer AI severity classification, such as priority levels
+- Improve the Slack message formatting with cleaner operational summaries
+- Replace dashboard polling with WebSockets or Server-Sent Events
+- Surface retry counts more clearly in the UI for failed action logs
 
----
+## Final Status
 
-## What I'd Improve With More Time
-
-- **Alembic migrations** instead of `create_all` on startup — safer for schema evolution in production
-- **GitHub App** (JWT + installation tokens) instead of a plain OAuth App — narrower token scope per installation, cleaner multi-tenant story
-- **AI triage stretch goal** — `GEMINI_API_KEY` is already in config; would wire it into the webhook handler to auto-summarize issues, suggest labels, and show priority in the dashboard and Slack messages
-- **WebSocket or SSE** instead of 5-second polling for the live event log — reduces unnecessary load and makes updates feel instant
-- **Retry visibility** — currently retries are logged but not surfaced in the UI; would show a "retried N times" indicator on failed action rows
+The project includes the required manual rule-based automation, the AI triage path, the GitHub
+dashboard, webhook ingestion, Slack notifications, and production deployment wiring.
+It is now in a completed state from a feature standpoint, with the remaining work limited to any
+final documentation polish or URL updates.
