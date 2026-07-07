@@ -516,6 +516,7 @@ export default function Dashboard() {
                     />
                     <select value={newRule.event_type} onChange={(e) => setNewRule({ ...newRule, event_type: e.target.value })} style={{ width: 130 }}>
                       <option value="issues">issues</option>
+                      <option value="pull_request">pull requests</option>
                     </select>
                     <span style={{ color: "#8b949e", fontSize: 13 }}>if</span>
                     <select value={newRule.match_field} onChange={(e) => setNewRule({ ...newRule, match_field: e.target.value })} style={{ width: 100 }}>

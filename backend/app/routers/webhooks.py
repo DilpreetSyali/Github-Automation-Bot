@@ -146,7 +146,7 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
         slack_webhook = slack_conn.webhook_url if slack_conn else None
 
         ai_result = None
-        if event.event_type == "issues" and event.action in ("opened", "reopened", "closed") and issue_number:
+        if event.event_type in ("issues", "pull_request") and event.action in ("opened", "reopened", "closed") and issue_number:
             ai_result = await triage_issue(fields["title"], fields["body"])
             if ai_result:
                 issue_is_urgent = bool(ai_result.get("urgent"))
@@ -176,10 +176,11 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
                 urgent = event.action == "opened" and (
                     issue_is_urgent or ai_result["label"] == "bug"
                 )
-                slack_text = _build_issue_slack_message(
+                slack_text = _build_slack_message(
                     repo.owner,
                     repo.name,
                     event.action or "updated",
+                    event.event_type,
                     fields["title"],
                     ai_result["label"],
                     ai_result["summary"],
@@ -193,10 +194,11 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
                 )
             else:
                 urgent = event.action == "opened"
-                slack_text = _build_issue_slack_message(
+                slack_text = _build_slack_message(
                     repo.owner,
                     repo.name,
                     event.action or "updated",
+                    event.event_type,
                     fields["title"],
                     "untriaged",
                     "AI triage unavailable",
@@ -264,21 +266,23 @@ async def _ensure_label(access_token: str, owner: str, repo: str, label: str) ->
     await create_label(access_token, owner, repo, label)
 
 
-def _build_issue_slack_message(
+def _build_slack_message(
     owner: str,
     repo: str,
     action: str,
+    event_type: str,
     title: str,
     label: str,
     summary: str,
     urgent: bool = False,
 ) -> str:
     prefix = ":rotating_light: " if urgent else ":speech_balloon: "
-    heading = "URGENT ISSUE" if urgent else "Issue update"
+    item_name = "PR" if event_type == "pull_request" else "Issue"
+    heading = f"URGENT {item_name}" if urgent else f"{item_name} update"
     return (
         f"{prefix}*{heading}* — *{owner}/{repo}*\n"
         f"*Action:* {action}\n"
-        f"*Issue:* \"{title}\"\n"
+        f"*{item_name}:* \"{title}\"\n"
         f"*Label:* `{label}`\n"
         f"*Summary:* {summary}"
     )
