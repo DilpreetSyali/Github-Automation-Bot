@@ -143,22 +143,34 @@ async def upsert_slack_connection(
 
 
 @router.get("/slack/login")
-async def slack_login():
+async def slack_login(user: User = Depends(get_current_user)):
     if not settings.SLACK_CLIENT_ID or not settings.SLACK_OAUTH_REDIRECT_URL:
         raise HTTPException(status_code=400, detail="Slack OAuth is not configured")
+    # Pass user id as state so we can identify the user on callback
     url = (
         "https://slack.com/oauth/v2/authorize"
         f"?client_id={settings.SLACK_CLIENT_ID}"
-        f"&scope=chat:write,channels:read,channels:join,groups:read,im:read,mpim:read"
+        f"&scope=chat%3Awrite%2Cchannels%3Aread%2Cchannels%3Ajoin%2Cgroups%3Aread%2Cim%3Aread%2Cmpim%3Aread"
         f"&redirect_uri={settings.SLACK_OAUTH_REDIRECT_URL}"
+        f"&state={user.id}"
     )
     return RedirectResponse(url)
 
 
 @router.get("/slack/callback")
-async def slack_callback(code: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def slack_callback(code: str, state: str = "", db: Session = Depends(get_db)):
     if not code:
         raise HTTPException(status_code=400, detail="Missing code")
+    # Find user from state parameter
+    user = None
+    if state:
+        try:
+            user_id = int(state)
+            user = db.query(User).filter(User.id == user_id).first()
+        except (ValueError, Exception):
+            pass
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid state — please log in again")
     try:
         data = await exchange_code_for_slack_token(code)
         channels = await list_channels(data["access_token"])
