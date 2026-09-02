@@ -145,6 +145,19 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
         slack_channel_id = slack_conn.channel_id if slack_conn else None
         slack_webhook = slack_conn.webhook_url if slack_conn else None
 
+        # Push events: always notify Slack (no rules/AI needed for pushes).
+        if event.event_type == "push":
+            push_text = _build_push_slack_message(repo.owner, repo.name, payload)
+            await _retry(
+                lambda t=push_text: send_slack_message(
+                    t, slack_access_token, slack_channel_id, slack_webhook
+                ),
+                "slack_push",
+                event,
+                db,
+            )
+            event.status = "processed"
+
         ai_result = None
         if event.event_type in ("issues", "pull_request") and event.action in ("opened", "reopened", "closed") and issue_number:
             ai_result = await triage_issue(fields["title"], fields["body"])
@@ -264,6 +277,40 @@ async def _process_event(db: Session, repo: Repo, event: Event, payload: dict) -
 
 async def _ensure_label(access_token: str, owner: str, repo: str, label: str) -> None:
     await create_label(access_token, owner, repo, label)
+
+
+def _build_push_slack_message(owner: str, repo: str, payload: dict) -> str:
+    pusher = ((payload.get("pusher") or {}).get("name")) or "someone"
+    ref = payload.get("ref") or ""
+    branch = ref.split("/")[-1] if ref else "unknown"
+    commits = payload.get("commits") or []
+    forced = payload.get("forced")
+    compare_url = payload.get("compare") or ""
+
+    if forced:
+        summary = ":warning: _force-pushed_"
+    elif not commits:
+        summary = "_no commit details_"
+    else:
+        lines = []
+        for c in commits[:5]:
+            msg = (c.get("message") or "").splitlines()[0][:120]
+            sha = (c.get("id") or "")[:7]
+            author = ((c.get("author") or {}).get("name")) or pusher
+            lines.append(f"  • `{sha}` {msg} — {author}")
+        summary = "\n".join(lines)
+        if len(commits) > 5:
+            summary += f"\n  • _and {len(commits) - 5} more…_"
+
+    text = (
+        f":arrow_up: *Push to {owner}/{repo}*\n"
+        f"*Branch:* `{branch}`\n"
+        f"*Pusher:* {pusher}\n"
+        f"*Commits ({len(commits)}):*\n{summary}"
+    )
+    if compare_url:
+        text += f"\n<{compare_url}|View diff on GitHub>"
+    return text
 
 
 def _build_slack_message(
