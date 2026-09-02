@@ -93,6 +93,17 @@ async def update_webhook(
         return resp.json()
 
 
+async def delete_webhook(access_token: str, owner: str, repo: str, hook_id: str) -> None:
+    async with httpx.AsyncClient() as client:
+        resp = await client.delete(
+            f"{GITHUB_API}/repos/{owner}/{repo}/hooks/{hook_id}",
+            headers=_auth_headers(access_token),
+        )
+        # 404 = already gone (e.g. deleted manually on GitHub) — that's fine.
+        if resp.status_code not in (204, 404):
+            resp.raise_for_status()
+
+
 async def add_label(access_token: str, owner: str, repo: str, issue_number: int, label: str) -> dict:
     async with httpx.AsyncClient() as client:
         resp = await client.post(

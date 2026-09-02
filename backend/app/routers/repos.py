@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user
 from app.config import settings
 from app.database import get_db
-from app.github_client import create_webhook, list_user_repos, update_webhook
+from app.github_client import create_webhook, delete_webhook, list_user_repos, update_webhook
 from app.models import Event, Repo, User
 from app.schemas import ConnectRepoIn, EventOut, RepoOut
 
@@ -76,6 +76,28 @@ async def connect_repo(
     return repo
 
 
+@router.delete("/{repo_id}", status_code=204)
+async def disconnect_repo(
+    repo_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Disconnect a repo: delete its GitHub webhook and forget it (events/rules cascade)."""
+    repo = db.query(Repo).filter(Repo.id == repo_id, Repo.user_id == user.id).first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repo not found")
+
+    if repo.webhook_id:
+        try:
+            await delete_webhook(user.access_token, repo.owner, repo.name, repo.webhook_id)
+        except Exception:  # noqa: BLE001 — never block disconnect on GitHub API failure
+            pass
+
+    db.delete(repo)
+    db.commit()
+    return None
+
+
 @router.get("/{repo_id}/events", response_model=list[EventOut])
 async def repo_events(
     repo_id: int,
@@ -91,7 +113,7 @@ async def repo_events(
         .options(joinedload(Event.actions))
         .filter(
             Event.repo_id == repo.id,
-            Event.event_type.in_(["issues", "pull_request"]),
+            Event.event_type.in_(["issues", "pull_request", "push"]),
         )
         .order_by(Event.received_at.desc())
         .limit(100)
