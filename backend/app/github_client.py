@@ -53,7 +53,7 @@ async def create_webhook(access_token: str, owner: str, repo: str, webhook_url: 
             json={
                 "name": "web",
                 "active": True,
-                "events": ["issues", "pull_request"],
+                "events": ["issues", "pull_request", "push"],
                 "config": {
                     "url": webhook_url,
                     "content_type": "json",
@@ -80,7 +80,7 @@ async def update_webhook(
             headers=_auth_headers(access_token),
             json={
                 "active": True,
-                "events": ["issues", "pull_request"],
+                "events": ["issues", "pull_request", "push"],
                 "config": {
                     "url": webhook_url,
                     "content_type": "json",
