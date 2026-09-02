@@ -46,6 +46,7 @@ function EventTypeBadge({ type, action }: { type: string; action?: string }) {
   const colorMap: Record<string, string> = {
     issues: "#d29922",
     pull_request: "#7c9cff",
+    push: "#3fb950",
     ping: "#8b949e",
   };
   const color = colorMap[type] ?? "#8b949e";
@@ -116,9 +117,9 @@ function formatEventTime(receivedAt: string) {
   }).format(new Date(iso));
 }
 
-function RepoCard({ repo, conn, isSelected, isConnecting, onConnect, onSelect }: {
-  repo: GhRepo; conn?: Repo; isSelected: boolean; isConnecting: boolean;
-  onConnect: () => void; onSelect: () => void;
+function RepoCard({ repo, conn, isSelected, isConnecting, isDisconnecting, onConnect, onDisconnect, onSelect }: {
+  repo: GhRepo; conn?: Repo; isSelected: boolean; isConnecting: boolean; isDisconnecting: boolean;
+  onConnect: () => void; onDisconnect: () => void; onSelect: () => void;
 }) {
   const [hover, setHover] = useState(false);
   const connected = !!conn;
@@ -167,18 +168,34 @@ function RepoCard({ repo, conn, isSelected, isConnecting, onConnect, onSelect }:
           {isConnecting ? "Connecting…" : "+ Connect webhook"}
         </button>
       ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); onSelect(); }}
-          style={{
-            background: isSelected ? "#58a6ff22" : "transparent",
-            border: `1px solid ${isSelected ? "#58a6ff55" : "#30363d"}`,
-            color: isSelected ? "#58a6ff" : "#8b949e",
-            borderRadius: 6, padding: "5px 0", fontSize: 12,
-            width: "100%", transition: "all 0.15s",
-          }}
-        >
-          {isSelected ? "▶ Viewing" : "View dashboard →"}
-        </button>
+        <>
+          <button
+            onClick={(e) => { e.stopPropagation(); onSelect(); }}
+            style={{
+              background: isSelected ? "#58a6ff22" : "transparent",
+              border: `1px solid ${isSelected ? "#58a6ff55" : "#30363d"}`,
+              color: isSelected ? "#58a6ff" : "#8b949e",
+              borderRadius: 6, padding: "5px 0", fontSize: 12,
+              width: "100%", transition: "all 0.15s",
+            }}
+          >
+            {isSelected ? "▶ Viewing" : "View dashboard →"}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDisconnect(); }}
+            disabled={isDisconnecting}
+            style={{
+              background: "transparent",
+              border: "1px solid #f8514944",
+              color: "#f85149",
+              borderRadius: 6, padding: "4px 0", fontSize: 11, fontWeight: 500,
+              width: "100%", transition: "all 0.15s",
+              opacity: isDisconnecting ? 0.6 : 1,
+            }}
+          >
+            {isDisconnecting ? "Disconnecting…" : "Disconnect"}
+          </button>
+        </>
       )}
     </div>
   );
@@ -198,6 +215,7 @@ export default function Dashboard() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "connected">("all");
   const [newRule, setNewRule] = useState(NEW_RULE_TEMPLATE);
@@ -260,6 +278,17 @@ export default function Dashboard() {
       setSelected(repo);
     } finally {
       setConnecting(null);
+    }
+  }
+
+  async function handleDisconnect(conn: Repo) {
+    setDisconnecting(String(conn.id));
+    try {
+      await api.disconnectRepo(conn.id);
+      setConnected((p) => p.filter((c) => c.id !== conn.id));
+      if (selected?.id === conn.id) setSelected(null);
+    } finally {
+      setDisconnecting(null);
     }
   }
 
@@ -387,7 +416,9 @@ export default function Dashboard() {
                     key={r.full_name} repo={r} conn={conn}
                     isSelected={!!(selected && conn && selected.id === conn.id)}
                     isConnecting={connecting === r.full_name}
+                    isDisconnecting={!!conn && disconnecting === String(conn.id)}
                     onConnect={() => handleConnect(r)}
+                    onDisconnect={() => conn && handleDisconnect(conn)}
                     onSelect={() => conn && setSelected(conn)}
                   />
                 );

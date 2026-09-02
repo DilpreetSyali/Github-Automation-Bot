@@ -61,6 +61,8 @@ export const api = {
   connectedRepos: () => request("/repos"),
   connectRepo: (owner: string, name: string) =>
     request("/repos", { method: "POST", body: JSON.stringify({ owner, name }) }),
+  disconnectRepo: (repoId: number) =>
+    request(`/repos/${repoId}`, { method: "DELETE" }),
   repoEvents: (repoId: number) => request(`/repos/${repoId}/events`),
   listRules: (repoId: number) => request(`/repos/${repoId}/rules`),
   createRule: (repoId: number, rule: any) =>
